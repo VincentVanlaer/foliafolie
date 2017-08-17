@@ -35,20 +35,20 @@
 #define folia_log(string, ...)
 #endif
 
+#define next(loc) i++;folia_log("%c", buffer[i]);goto loc;
 
 #define check_quoted(callback, write_out) if (buffer[i] == '"') { \
-	next_step = &&quoted; \
 	after_quoted = callback; \
 	write_out_quoted = write_out; \
     letters_found = 0; \
-	continue;}
+	next(quoted);}
 
 #define check_letter(letter) if (buffer[i] == letter) { \
 	letters_found++; \
 } \
 else { letters_found = 0; }
 
-#define finished_letters(count, callback) if(letters_found == count) {  folia_log("\nState change to " #callback "\n" ); letters_found = 0; next_step = callback; continue;  }
+#define finished_letters(count, callback) if(letters_found == count) {  folia_log("\nState change to " #callback "\n" ); letters_found = 0; next(callback);  }
 
 const char w_begin[] = "<w ";
 const char w_end[] = "</w>";
@@ -60,7 +60,6 @@ const char alt_begin[] = "<alt";
 const char alt_end[] = "</alt>";
 const char w_class[] = "class=";
 
-void *next_step;
 void *after_quoted;
 bool write_out_quoted;
 
@@ -85,7 +84,6 @@ void sigsegv_handler(int signum, siginfo_t *info, void *ptr) {
 
 int main( int argc, char *argv[] )
 {
-	next_step = &&not_in_w;
 	letters_found = 0;
 
 	struct stat sb;
@@ -119,15 +117,12 @@ int main( int argc, char *argv[] )
 		return 1;
 	}
 
-	int i = -1;
+	int i = 0;
+
+	goto not_in_w;
 
 	while (true) {
 
-		i++;
-
-		folia_log("%c", buffer[i]);
-
-		goto *next_step;
 quoted:
 #ifdef FOLIA_DEBUG
 		quoted_count++;
@@ -136,28 +131,26 @@ quoted:
 			if (write_out_quoted) {
 				print_char_something(' ');
 			}
-			next_step = after_quoted;
-			continue;
+			next(*after_quoted)
 		}
 		
 		if (write_out_quoted) {
 			print_char_something(buffer[i]);
 		}
 
-		continue;
-	
+		next(quoted);
+
 pre_not_in_w:	
 		print_char_something('\n');
-		next_step = &&not_in_w;
 not_in_w:
 #ifdef FOLIA_DEBUG
 		not_in_w_count++;
 #endif
 		//check_quoted(&&not_in_w, false);
 		check_letter(w_begin[letters_found]);
-		finished_letters(strlen(w_begin), &&in_w);
-
-		continue;
+		finished_letters(strlen(w_begin), in_w);
+		
+		next(not_in_w);
 
 in_w:
 #ifdef FOLIA_DEBUG
@@ -165,9 +158,9 @@ in_w:
 #endif
 		check_quoted(&&in_w, false);
 		check_letter(w_class[letters_found]);
-		finished_letters(strlen(w_class), &&reading_class);
+		finished_letters(strlen(w_class), reading_class);
 
-		continue;
+		next(in_w);
 
 reading_class:
 
@@ -178,7 +171,6 @@ reading_class:
 
 space_pre_not_in_lemma:
 		print_char_something(' ');
-		next_step = &&not_in_lemma;
 
 not_in_lemma:
 #ifdef FOLIA_DEBUG
@@ -188,50 +180,42 @@ not_in_lemma:
 
 		if (buffer[i] == '<') {
 			folia_log("\nStarting candidates\n");
-			next_step = &&not_in_lemma_candidate_start;
+			next( not_in_lemma_candidate_start);
 		}
 
-		continue;
+		next(not_in_lemma);
 
 not_in_lemma_candidate_start:
 
 		switch (buffer[i]) {
 			case 't':
-				next_step = &&not_in_lemma_candidate_t;
-				continue;
+				next(not_in_lemma_candidate_t);
 			case 'a':
-				next_step = &&not_in_lemma_candidate_a;
 				letters_found = 2;
-				continue;
+				next(not_in_lemma_candidate_a);
 			case 'l':
-				next_step = &&not_in_lemma_candidate_l;
 				letters_found = 2;
-				continue;
+				next(not_in_lemma_candidate_l);
 			case '/':
-				next_step = &&not_in_lemma_candidate_w;
 				letters_found = 2;
-				continue;
+				next(not_in_lemma_candidate_w);
 			default:
-				next_step = &&not_in_lemma;
-				continue;					
+				next(not_in_lemma);
 		}
 
 not_in_lemma_candidate_t:
 
 		switch (buffer[i]) {
 			case ' ':
+				letters_found = 0;
 				folia_log("\nCandidate '<t ' found\n");
-				next_step = &&in_t_ignore;
-				letters_found = 0;
-				continue;
+				next(in_t_ignore);
 			case '>':
-				next_step = &&pre_in_t;
-				folia_log("\nCandidate '<t>' found\n");
 				letters_found = 0;
-				continue;
+				folia_log("\nCandidate '<t>' found\n");
+				next(pre_in_t);
 			default:
-				next_step = &&not_in_lemma;
-				continue;
+				next(not_in_lemma);
 		}
 
 not_in_lemma_candidate_l:
@@ -240,17 +224,15 @@ not_in_lemma_candidate_l:
 			if (letters_found == strlen(lemma_begin) - 1) {
 				folia_log("\nCandidate '<lemma ' found\n");
 				letters_found = 0;
-				next_step = &&in_lemma;
-				continue;
+				next(in_lemma);
 			}
 			
 			letters_found++;
+			next(not_in_lemma_candidate_l);
 		}
 		else {
-			next_step = &&not_in_lemma;
+			next(not_in_lemma);
 		}
-
-		continue;
 
 not_in_lemma_candidate_a:
 
@@ -258,16 +240,15 @@ not_in_lemma_candidate_a:
 			if (letters_found == strlen(alt_begin) - 1) {
 				folia_log("\nCandidate '<alt ' found\n");
 				letters_found = 0;
-				next_step = &&in_alt;
+				next(in_alt);
 			}
 			
 			letters_found++;
+			next(not_in_lemma_candidate_a);
 		}
 		else {
-			next_step = &&not_in_lemma;
+			next(not_in_lemma);
 		}
-
-		continue;
 
 not_in_lemma_candidate_w:
 
@@ -276,23 +257,22 @@ not_in_lemma_candidate_w:
 				folia_log("\nCandidate '</w>' found\n");
 				print_char_something('\n');
 				letters_found = 0;
-				next_step = &&not_in_w;
+				next(not_in_w);
 			}
 			
 			letters_found++;
+			next(not_in_lemma_candidate_w);
 		}
 		else {
-			next_step = &&not_in_lemma;
+			next(not_in_lemma);
 		}
-
-		continue;
 
 in_lemma:
 		check_quoted(&&in_lemma, false);
 		check_letter(w_class[letters_found]);
-		finished_letters(strlen(w_class), &&reading_class);
+		finished_letters(strlen(w_class), reading_class);
 
-		continue;
+		next(in_lemma);
 
 pre_in_t:
 		t_buffer[0] = '-';
@@ -301,40 +281,44 @@ pre_in_t:
 
 		t_buffer_next = 0;
 
-		next_step = &&in_t;
 		letters_found = 0;
 
 in_t:
 		//fprintf(stderr, "%d %d\n", t_buffer_next, letters_found);
 		check_letter(t_end[letters_found]);
-		finished_letters(strlen(t_end), &&space_pre_not_in_lemma);
+		finished_letters(strlen(t_end), space_pre_not_in_lemma);
 
 		print_char_something(t_buffer[t_buffer_next]);
 		t_buffer[t_buffer_next] = buffer[i];
 		t_buffer_next = ((t_buffer_next + 1) % 3);
 
-		continue;
+		next(in_t);
+
 
 in_t_preamble_ignore:
 
 		check_quoted(&&in_t_preamble_ignore, false);
 
-		if (buffer[i] == '>') next_step = &&in_t_ignore;
+		if (buffer[i] == '>') {
+		   	next(in_t_ignore);
+		}
 
-		continue;
+		next(in_t_preamble_ignore);
+
 
 in_t_ignore:
 		
 		check_letter(t_end[letters_found]);
-		finished_letters(strlen(t_end), &&not_in_lemma);
+		finished_letters(strlen(t_end), not_in_lemma);
 
-		continue;
+		next(in_t_ignore);
 in_alt:
 
 		check_quoted(&&in_alt, false);
 		check_letter(alt_end[letters_found]);
-		finished_letters(strlen(alt_end), &&not_in_lemma);
-		continue;
+		finished_letters(strlen(alt_end), not_in_lemma);
+
+		next(in_alt);
 
 	}
 }
