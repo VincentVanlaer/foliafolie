@@ -70,13 +70,23 @@ int t_buffer_next;
 unsigned int quoted_count, not_in_w_count, in_w_count, not_in_lemma_count; 
 
 
+char output_buffer[4096];
+int out_buf_loc = -1;
+
 void print_char_something(char c) {
-	putc(c, stdout);
+	if (out_buf_loc == 4095) {
+		write(1, output_buffer, 4096);
+		out_buf_loc = -1;
+	}
+
+	out_buf_loc++;
+	output_buffer[out_buf_loc] = c;
 }
 
 
 void sigsegv_handler(int signum, siginfo_t *info, void *ptr) {
 	folia_log("\n%d %d %d %d\n", quoted_count, not_in_w_count, in_w_count, not_in_lemma_count);
+	if (out_buf_loc != -1) write(1, output_buffer, out_buf_loc + 1);
 	exit(0);
 }
 
